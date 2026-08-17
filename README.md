@@ -35,6 +35,10 @@ pnpm build
 - 实例隔离：不接触主人真实浏览器，无凭据泄露风险
 - 截图落地到 shotDir，配合图片读取实现「看到页面」
 
+## 相关
+
+- [我的数字生命爱丽丝 — 插件生态中心（架构总览）](https://github.com/jonah791/alice-digital-life)
+
 ## License
 
 MIT
