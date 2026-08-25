@@ -1,3 +1,13 @@
+<!--
+  DSH 插件生态公约声明（plugin-ecosystem-convention · 组合优先/声明清晰/兼容优先）
+  purpose: 浏览器自主操作插件：爱丽丝经 headless Edge (CDP) 自主打开页面/点击/输入/读取/截图——GUI 验证与网页操作全自主，不依赖主人手动操作。
+  inject: 'tools'
+  tools: webops_*
+  runtime: host-only
+  envDeps: Chrome/Edge 浏览器（可配置 browserBin）
+  boundary: 无特殊授权边界
+  compat: cordis ^4.0.1 / dsh-tools ^0.1.0-rc.6
+-->
 # dsh-agent-webops — 浏览器自主操作插件
 
 DSH（DeepSeek Harness）插件：host 管理一个 headless Edge 实例（CDP），给 agent 完整的自主网页操作工具面——打开页面、读取内容、点击、输入、截图、执行 JS——GUI 验证与网页操作全自主，不打扰主人的真实浏览器。
