@@ -1,7 +1,7 @@
 {
   "name": "dsh-agent-webops",
   "version": "0.1.0",
-  "description": "浏览器自主操作插件：爱丽丝经 headless Edge (CDP) 自主打开页面/点击/输入/读取/截图——GUI 验证与网页操作全自主，不依赖主人手动操作。",
+  "description": "浏览器自主操作插件：爱丽丝经 headless Chrome (CDP) 自主打开页面/点击/输入/读取/截图——GUI 验证与网页操作全自主，不依赖主人手动操作。",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

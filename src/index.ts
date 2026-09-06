@@ -1,7 +1,7 @@
 /**
  * dsh-agent-webops：浏览器自主操作插件。
  *
- * host 管理一个 headless Edge 实例（CDP），工具面给爱丽丝：
+ * host 管理一个 headless Chrome 实例（CDP），工具面给爱丽丝：
  * open/navigate/read/click/type/eval/shot/close——GUI 验证与网页操作全自主。
  * 不接触主人的真实浏览器；实例独立（临时 user-data-dir），close 后清理。
  * @module dsh-agent-webops
