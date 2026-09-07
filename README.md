@@ -10,6 +10,12 @@
 -->
 # dsh-agent-webops — 浏览器自主操作插件
 
+
+<p align="center">
+  <a href="https://github.com/jonah791/dsh-agent-webops"><img src="https://img.shields.io/badge/version-0.1.0-blue" alt="version"></a>
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
+  <img src="https://img.shields.io/badge/TypeScript-3178C6" alt="TypeScript">
+</p>
 DSH（DeepSeek Harness）插件：host 管理一个 headless Edge 实例（CDP），给 agent 完整的自主网页操作工具面——打开页面、读取内容、点击、输入、截图、执行 JS——GUI 验证与网页操作全自主，不打扰主人的真实浏览器。
 
 ## 功能特性
