@@ -12,6 +12,11 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import {
+  cdpJsonUrl, cdpTargetOf, chromeArgs, clickJs as CLICK_JS, profileDirFor, readExpr,
+  resolveShotDir, screenshotFileName, typeJs as TYPE_JS,
+  CDP_MAX_ATTEMPTS, CDP_POLL_INTERVAL_MS, CDP_SEND_TIMEOUT_MS,
+} from './pure.ts'
 
 export const name = 'agent-webops'
 export const inject = ['tools'] as const
@@ -48,27 +53,19 @@ class CdpPage {
     if (this.isOpen) return { ok: false, error: '实例已打开（先 webops_close）' }
     // 固定调试端口（9222）：实测安全软件只放行默认调试端口，随机偏移端口不监听
     this.port = this.portMin
-    this.profileDir = join(process.env.TEMP ?? '.', 'webops-profile-' + Date.now())
+    this.profileDir = profileDirFor(process.env.TEMP, Date.now())
     try {
-      this.proc = spawn(this.bin, [
-        '--headless', // Chrome 132+ 移除 --headless=new（实测 151 不识别导致调试端口不监听）
-        '--disable-gpu',
-        '--no-first-run',
-        '--window-size=1440,900',
-        '--remote-debugging-port=' + this.port,
-        '--user-data-dir=' + this.profileDir,
-        url,
-      ], { stdio: 'ignore' })
+      this.proc = spawn(this.bin, chromeArgs({ port: this.port, profileDir: this.profileDir, url }), { stdio: 'ignore' })
     } catch (err) {
       return { ok: false, error: '浏览器启动失败: ' + String(err) }
     }
     // 等 CDP 就绪（冷启动最长 ~40s）
     let target: { webSocketDebuggerUrl?: string } | null = null
-    for (let i = 0; i < 80 && !this.closed; i++) {
-      await new Promise((r) => setTimeout(r, 500))
+    for (let i = 0; i < CDP_MAX_ATTEMPTS && !this.closed; i++) {
+      await new Promise((r) => setTimeout(r, CDP_POLL_INTERVAL_MS))
       try {
-        const list = await (await fetch('http://127.0.0.1:' + this.port + '/json')).json() as Array<{ type?: string; url?: string; webSocketDebuggerUrl?: string }>
-        target = list.find((t) => t.type === 'page') ?? null
+        const list = await (await fetch(cdpJsonUrl(this.port))).json()
+        target = cdpTargetOf(list)
         if (target?.webSocketDebuggerUrl) break
       } catch { /* retry */ }
     }
@@ -107,7 +104,7 @@ class CdpPage {
       const id = ++this.seq
       this.pending.set(id, resolve)
       this.ws.send(JSON.stringify({ id, method, params }))
-      setTimeout(() => { if (this.pending.has(id)) { this.pending.delete(id); reject(new Error('CDP 超时: ' + method)) } }, 30000)
+      setTimeout(() => { if (this.pending.has(id)) { this.pending.delete(id); reject(new Error('CDP 超时: ' + method)) } }, CDP_SEND_TIMEOUT_MS)
     })
   }
 
@@ -131,7 +128,7 @@ class CdpPage {
       const data = msg.result?.data as string | undefined
       if (!data) return { ok: false, error: '截图失败' }
       mkdirSync(this.shotDir, { recursive: true })
-      const file = join(this.shotDir, 'shot-' + Date.now() + '.png')
+      const file = join(this.shotDir, screenshotFileName(Date.now()))
       writeFileSync(file, Buffer.from(data, 'base64'))
       return { ok: true, path: file }
     } catch (err) {
@@ -154,31 +151,12 @@ class CdpPage {
   }
 }
 
-/** 点击/输入用的 DOM 辅助表达式（页面内执行）。 */
-// 注意：这些是注入浏览器的纯 JS（不能含 TS 语法如 as 类型断言）
-const CLICK_JS = (text: string): string => `(() => {
-  const targets = [...document.querySelectorAll('button,a,[role=button],[role=menuitem],input,label,span')]
-  const hit = targets.find((el) => el.innerText && el.innerText.trim() === ${JSON.stringify(text)})
-    ?? targets.find((el) => el.innerText && el.innerText.includes(${JSON.stringify(text)}))
-    ?? [...document.querySelectorAll('*')].find((el) => el.childElementCount === 0 && el.textContent && el.textContent.trim() === ${JSON.stringify(text)})
-  if (!hit) return 'NOT_FOUND'
-  hit.click()
-  return 'CLICKED'
-})()`
-
-const TYPE_JS = (selector: string, text: string): string => `(() => {
-  const el = document.querySelector(${JSON.stringify(selector)})
-  if (!el) return 'NOT_FOUND'
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value') && Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-  if (setter) setter.call(el, ${JSON.stringify(text)})
-  else el.value = ${JSON.stringify(text)}
-  el.dispatchEvent(new Event('input', { bubbles: true }))
-  el.dispatchEvent(new Event('change', { bubbles: true }))
-  return 'TYPED'
-})()`
+/** 点击/输入用的 DOM 辅助表达式（页面内执行）——定义在 `src/pure.ts`（可离线单测），此处仅重导出。
+ * 注意：那些是注入浏览器的纯 JS（不能含 TS 语法如 as 类型断言）。 */
+export { clickJs, typeJs, readExpr } from './pure.ts'
 
 export function apply(ctx: Context, config: Config): void {
-  const page = new CdpPage(config.browserBin, config.portMin, config.shotDir || join(process.env.DSH_HOME || '.', 'webops-shots'))
+  const page = new CdpPage(config.browserBin, config.portMin, resolveShotDir(config.shotDir, process.env.DSH_HOME || ''))
   const logger = ctx.logger('agent-webops')
   const opened = (): boolean => page.isOpen
 
@@ -201,9 +179,7 @@ export function apply(ctx: Context, config: Config): void {
     output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, text: { type: 'string' }, error: { type: 'string' } } }, render: (_a: any, v: any) => [{ type: 'text', text: v.ok ? String(v.text ?? '').slice(0, 6000) : ('失败: ' + (v.error ?? '')) }] },
     async execute(args: { selector?: string }) {
       if (!opened()) return { ok: false, error: '浏览器未打开（先 webops_open）' }
-      const expr = args.selector
-        ? `document.querySelector(${JSON.stringify(args.selector)})?.innerText ?? '(选择器无匹配)'`
-        : 'document.body.innerText'
+      const expr = readExpr(args.selector)
       const r = await page.evaluate(expr)
       if (r.error) return { ok: false, error: r.error }
       return { ok: true, text: String(r.value ?? '') }

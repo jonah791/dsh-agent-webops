@@ -141,14 +141,19 @@
 | A6 | 当前进程加载最新构建 | lib mtime `2026-09-06 17:37:24` < web PID 7080 启动 `2026-09-14 10:05:47` | 已实测（2026-09-14 读数） |
 | A7 | 挂载行唯一 | `grep -n "dsh-agent-webops" .dsh/profiles/web/cordis.patch.yml` → 1 命中（行 95） | 已实测 |
 | A8 | 浏览器实现与配置一致 | patch `browserBin` 指向 **Chrome**，而工具描述/README 称「headless Edge」→ 命题：**描述与实现不一致**（见 §8） | 已实测（不一致，登记为缺口） |
+| A9 | 拉起参数正确且**顺序固定**（URL 在最后） | `npm test` → `chromeArgs` 3 条用例（含「不得回退 `--headless=new`」） | 已实测（2026-09-14，离线） |
+| A10 | 注入网页的两段 JS 真能跑（点击匹配梯 / React 写值） | `npm test` → `tests/dom.test.mjs` 在假 DOM 里**真执行** `clickJs`/`typeJs`：精确→包含→叶子三级命中、`NOT_FOUND` 失败路径、原生 setter + input/change(bubbles) | 已实测（2026-09-14，10 例） |
+| A11 | 注入安全：文本/选择器含引号、反斜杠、换行、`');` 不破坏表达式 | `npm test` → `clickJs/typeJs: 注入安全…` 断言照常 `CLICKED`/`TYPED` 且写入值逐字相同 | 已实测（2026-09-14） |
+| A12 | CDP `/json` 坏响应不得抛（未就绪时可能是对象/HTML） | `npm test` → `cdpTargetOf` 5 条退化用例（非数组/空/无 page/坏条目）一律 `null` | 已实测（2026-09-14） |
+| A13 | 失败/退化路径被机器锁住（S6 判据） | `npm test` → 21/21 pass（纯逻辑 11 + 注入表达式 10） | 已实测（2026-09-14） |
 
 ## 8 · 与实现的关系
 
-- 主实现：`self-plugins/dsh-agent-webops/src/index.ts`（唯一文件，无同语义副本）。
+- 主实现：`self-plugins/dsh-agent-webops/src/index.ts`（IO 接线：spawn / WebSocket / fetch / fs / 工具注册）**+ `src/pure.ts`（纯逻辑层：`chromeArgs` / `profileDirFor` / `resolveShotDir` / `cdpJsonUrl` / `cdpTargetOf` / `screenshotFileName` / `clickJs` / `typeJs` / `readExpr` / `isParseableExpression` + 三个超时常量）**；两者无同语义副本。产物 `lib/index.js` + `lib/pure.js`。测试：`tests/pure.test.mjs`（11）+ `tests/dom.test.mjs`（10）。
 - 未实现/未验证部分**显式标注**：
   - **文案与实现漂移（已实测）**：`webops_open` 的 description、`package.json` description、`README.md` 正文均称「headless **Edge**」，而 `Config.browserBin` 默认值与 web 组合实际配置都指向 **Chrome**（`chrome.exe`）。程序行为以配置为准（Chrome）；文案属漂移，本文件只登记**不改源码/README**（守补课纪律）。
   - **`shotDir` 默认为空串**：组合行未配置 `shotDir` → 实际落盘位置由 `DSH_HOME` 决定（`E:\alice\.dsh\webops-shots`）。若 `DSH_HOME` 未设则落在 `.` 下（相对进程 cwd）——路径不显式，属可维护性缺口。
-  - 无单测文件（仓库内无 `tests/`），A2–A5 无自动化证据。
+  - 无单测文件（仓库内无 `tests/`），A2–A5 无自动化证据。**已部分闭环（2026-09-14）**：现有 21 例离线回归覆盖纯逻辑与注入表达式（A9–A13），A2–A5 仍是进程级验收。
   - 无自证侧车轨迹：只有宿主 `ctx.logger`（不落盘），五问中的「断在哪一段」只能靠调用返回值判读。
 
 ## 9 · 实践修订记录
@@ -158,9 +163,19 @@
   - 语义**被补充**：截图落盘位置的真实解析规则（`DSH_HOME/webops-shots`）、失败面逐类归口（含 9222 被占用这一**最常见**失败原因）、消费方技能 `dsh-panel-plugin:35`。
   - 语义**被修正**：能力描述中的「headless Edge」与实际 Chrome 不符（登记为漂移，见 §8）。
   - 教训（同时回写技能 `semantic-doc-first`）：**文案漂移也要进「未实现/未验证部分」而不是悄悄改文案**——先记录，再另行裁决是否修实现或修文案。
+- **2026-09-14 · 可维护性补课（S3 有测试 / S6 失败路径）：抽纯逻辑层 + 21 例回归（含把注入 JS 当代码跑）**
+  - **抽层（行为不变的搬家）**：新增 `src/pure.ts` —— `chromeArgs`（原 spawn 的参数数组字面量）/ `profileDirFor`（原 `join(TEMP, 'webops-profile-' + Date.now())`）/ `resolveShotDir`（原 `config.shotDir || join(...)`）/ `cdpTargetOf`（原 `list.find(t => t.type === 'page') ?? null`）/ `cdpJsonUrl` / `screenshotFileName` / `clickJs` / `typeJs` / `readExpr` / 常量 `CDP_MAX_ATTEMPTS=80`、`CDP_POLL_INTERVAL_MS=500`、`CDP_SEND_TIMEOUT_MS=30000`（原为散落的 `80` / `500` / `30000` 字面量）。`index.ts` 只留 spawn / WebSocket / fetch / fs。
+  - **语义被确认**：`--headless` 必须用**旧写法**（Chrome 132+ 移除 `--headless=new`，实测 151 不识别 → 调试端口不监听 → CDP 永远不就绪）；URL 必须在参数**最后**；点击三级匹配梯（精确 innerText → 包含 → 叶子 textContent 精确）；`typeJs` 必须走原生 setter + input/change（React 受控组件否则读不到）。以上全部升级为**机器断言**。
+  - **语义被补充（新不变量 ①·注入安全）**：注入页面的 JS 必须对**一切**外来文本用 `JSON.stringify` 转义——文本含 `'`、`"`、`\`、换行乃至 `'); alert(1); //` 时表达式不得被破坏（写坏就是页面里执行任意代码或功能静默失效）。已由 4 条用例夹住（文本注入 × 2 + 选择器注入 × 1 + 可解析性）。
+  - **语义被补充（新不变量 ②·坏响应不抛）**：`/json` 在浏览器未就绪时可能返回对象/HTML，`cdpTargetOf` 必须返回 `null` 让轮询继续，**不得抛**（抛了会被外层 `catch` 吞成一模一样的重试，但可诊断性归零）。
+  - **行为变更：无**（逐条比对：参数数组、目录解析、目标挑选、表达式文本、超时数值全部一致）。唯一结构差异是 `clickJs`/`typeJs`/`readExpr` 由 `index.ts` 常量改为 `pure.ts` 导出（并在 `index.ts` 原位重导出），**注入页面看到的字符串逐字不变**。
+  - **方法学收获**：注入型 JS 是可以**离线真跑**的——搭一个最小假 DOM（`document`/`window`/`Event` 三个全局）就能把「点击匹配梯」「React 写值」这些只在真页面才暴露的分支变成秒级回归。这类表达式**不该只做字符串断言**。
 
 ## 10 · 未决问题
 
 - **U1 Edge/Chrome 表述归一**：修文案（README/description 改 Chrome）还是修配置（改回 Edge 路径）？倾向修文案——Chrome 实机已验证可用。需主人/实现者裁决。
 - **U2 端口硬编码 9222 的代价**：固定端口换来「能被安全软件放行」，代价是**同机第二个实例/遗留 chrome 会互相堵死**（表现为 `CDP 未就绪`，报错未区分「被占用」与「启动失败」）。倾向：就绪失败时探测 9222 占用者并把占用者写进 error，提高可诊断性（§5.22 五问）。
 - **U3 截图目录无清理策略**：长期运行会累积。倾向：由 `clyan_*` 清扫而非插件自建清理（保持职责单一），但需在 README 写明。
+- **U4（新，2026-09-14）`chromeArgs` 的窗口尺寸硬编码 1440×900**：截图分辨率即视口尺寸——需要其它分辨率时只能改代码。是否把 `windowSize` 提为配置项待定调。
+- **U5（新，2026-09-14）`webops_open` 的目标页等待策略缺失**：`open` 在 CDP 就绪后立即返回，页面可能仍在加载——当前靠调用方自己 `webops_read` 重试。是否需要 `Page.loadEventFired` 等待（或可配超时）待定调。
+- **U6（新，2026-09-14）注入表达式的 `NOT_FOUND` 与「真错误」未区分**：`webops_click` 返回 `{ok:true, result:'NOT_FOUND'}`（ok 为真）——调用方需读 result 才知道失败。是否改为 `ok:false` 待定调（属行为变更，会影响既有调用方判读）。
