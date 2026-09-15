@@ -128,7 +128,7 @@ class CdpPage {
   }
 
   async open(url: string): Promise<{ ok: boolean; error?: string }> {
-    if (this.isOpen) return { ok: false, error: '实例已打开（${this.mode} @ :${this.port}）——先 webops_close' }
+    if (this.isOpen) return { ok: false, error: `实例已打开（${this.mode} @ :${this.port}）——先 webops_close` }
     // 固定调试端口（9222）：实测安全软件只放行默认调试端口，随机偏移端口不监听
     this.port = this.portMin
     this.attached = false
@@ -166,7 +166,7 @@ class CdpPage {
    * ② 轮询预算 3s 而非 40s（端口现在要么开着、要么就没开）③ 失败文案区分「无端点」与「有监听但非 CDP」。
    */
   async attach(port: number): Promise<{ ok: boolean; error?: string; url?: string; title?: string }> {
-    if (this.isOpen) return { ok: false, error: '实例已打开（${this.mode} @ :${this.port}）——先 webops_close' }
+    if (this.isOpen) return { ok: false, error: `实例已打开（${this.mode} @ :${this.port}）——先 webops_close` }
     this.attached = false
     this.closed = false
     let target: { webSocketDebuggerUrl?: string; url?: string; title?: string } | null = null
