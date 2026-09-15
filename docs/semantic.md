@@ -86,6 +86,7 @@
 7. **I7 控制台缓冲有界**：容量 200 条、单条 ≤1000 字符、超容量丢最旧、非控制台事件一律返回 `null` 不入缓冲（否则一条事件流就能把缓冲灌满）。
 8. **I8 wait 的三态分离**：「条件为假（continue）」≠「表达式异常（error）」≠「预算耗尽（timeout）」——页面内异常被包成 `WAIT_ERR:` 前缀字符串返回，**不得**与假值混同（否则「页面炸了」会被读成「还没就绪」）。
 9. **I9 端口所有权**：`portMin`（9222，spawn 用）与 `attachPort`（9333，attach 用）**不得相同**——同一端口两个 owner 会互相堵死（对照 AGENTS.md §5.19）。
+10. **I10 连接活性以 socket 为准**：`isOpen` 为真**必须**意味着「本进程正握着一条 OPEN 的 WebSocket」——即 `socketLive(ws.readyState, closed)`：未主动关闭 ∧ readyState=OPEN。**对端断开必须复位**（`onclose` 清引用 + 落闸门），否则闸门永远真、`open`/`attach` 被自己挡住。**理由**：目标进程不是本插件拉起的，它的生死只能从 socket 上读；把「曾经连过」当成「现在开着」= 用隐式状态做判定（对照 evolve 规则 2）。**含尸体测试** + 现场判据 A22。
 
 ## 4 · 契约
 
@@ -168,7 +169,7 @@
 | # | 可证伪命题 | 证据（单测名/命令/日志行/HTTP） | 状态 |
 |---|-----------|------------------------------|------|
 | A1 | 工具面恰为 **10** 个 | 源码 `grep -c "name: 'webops_" src/index.ts` = 10；会话工具列表 `webops_` 前缀命中 10 | 已实测（2026-09-15，源码计数 10） |
-| A2 | 单实例闸门有效 | 连续两次 `webops_open`：第二次返回 `'实例已打开（先 webops_close）'` | **待验收** |
+| A2 | 单实例闸门有效（**活性感知**，I1+I10） | 连续两次 `webops_open`：第二次返回含 `实例已打开` + **模式与端口**（如 `实例已打开（spawned @ :9222）——先 webops_close`；文案 v0.2.1 起变更） | **待线上验收** |
 | A3 | 未开即拒（I2） | 重启后未连接直接调 `webops_shot`/`webops_wait` → `'实例未打开（先 webops_open，或 webops_attach 附着外部 CDP 端点）'` | **待验收** |
 | A4 | 截图真实落盘 | `webops_shot` 返回路径 `Test-Path` 为真且 mtime = 调用时刻 | 已实测（2026-09-15 14:49，`shot-1789454939398.png` 2041×1292 / 299 KB） |
 | A5 | spawn 模式 close 后无残留 | close 后 `Get-Process chrome` 无该 PID；`%TEMP%\webops-profile-*` 2s 后消失；9222 不再 Listen | **待验收** |
@@ -179,7 +180,7 @@
 | A10 | 注入网页的两段 JS 真能跑（点击匹配梯 / React 写值） | `npm test` → `tests/dom.test.mjs` 在假 DOM 里**真执行** `clickJs`/`typeJs` | 已实测（2026-09-14，10 例） |
 | A11 | 注入安全：文本/选择器含引号、反斜杠、换行、`');` 不破坏表达式 | `npm test` → `clickJs/typeJs: 注入安全…` 断言照常 `CLICKED`/`TYPED` 且写入值逐字相同 | 已实测（2026-09-14） |
 | A12 | CDP `/json` 坏响应不得抛（未就绪时可能是对象/HTML） | `npm test` → `cdpTargetOf` 5 条退化用例一律 `null` | 已实测（2026-09-14） |
-| A13 | 失败/退化路径被机器锁住（S6 判据） | `npm test` → **31/31 pass**（pure 21 + dom 10） | 已实测（2026-09-15） |
+| A13 | 失败/退化路径被机器锁住（S6 判据） | `npm test` → **32/32 pass**（pure 22 + dom 10） | 已实测（2026-09-15，v0.2.1） |
 | A14 | attach 能附着外部端点并拿到目标身份 | `webops_attach {port:9333}` → `已附着 CDP:9333 「爱丽丝工作台」 http://localhost:1420/（close 只断开，不杀目标进程）` | 已实测（2026-09-15 14:49） |
 | A15 | **attach 的 close 只断开、绝不杀目标进程**（I6 现场验收） | close 后：`alice-workbench` 仍存活（pid 4384，启动 14:48:37 未变）、9333 与 1420 仍 LISTEN、`/json` 仍返回 page target「爱丽丝工作台」、可再次 attach 成功 | 已实测（2026-09-15 14:52） |
 | A16 | **closePlan 尸体测试**（attach 分支不得杀进程/删 profile） | `npm test` → `closePlan(true) = {killProc:false, rmProfile:false}` | 已实测（2026-09-15） |
@@ -187,6 +188,8 @@
 | A18 | **DOM 级驱动产生真实状态变更**（起节点 → 停节点 → 收尸闭环） | 起：星数 5→6、HUD「节点 2 在线」、账本 `.workbench-spawned.json` 写入 `LAPTOP-BF4IAPLM-wb-0`/pid、心跳文件出现；停（**一次调用内双击确认**）：星数 6→5、HUD「节点 1 在线」、账本回到 `[]`、`nodes/LAPTOP-BF4IAPLM-wb-0.json` 已删、登记 pid 已终止 | 已实测（2026-09-15 14:49–14:51） |
 | A19 | wait 三态分离（I8）+ 环形缓冲有界（I7） | `npm test` → `waitDecision` 四态用例（含 `WAIT_ERR:` 与 exception 透传、4999ms 不得提前判超时）；`appendConsole` 超容量丢最旧；`consoleEntryOf` 非控制台事件 `null` | 已实测（2026-09-15） |
 | A20 | attach 失败文案二分（可诊断性） | `npm test` → `attachFailureMessage` 两态文案必须不同且含可照做的启动参数 | 已实测（2026-09-15） |
+| A21 | **socket 死了不得再算「开着」**（I10 尸体测试） | `npm test` → `socketLive`：CLOSED(3) / CLOSING(2) / `null` / `undefined` 一律 `false`；OPEN(1)+未关闭 `true`；`close()` 落闸门后即便 readyState 仍是 1 也 `false` | 已实测（2026-09-15，pure 22/22） |
+| A22 | 目标进程退出后 `open`/`attach` **必须放行**（v0.2.1 事故的现场判据） | 现场：目标窗口关闭后直接调 `webops_open` → **不得**再报「实例已打开」，应正常拉起；对照旧实现（2026-09-15 复现：必报错，须人工 `webops_close` 才恢复） | **待线上验收**（v0.2.1 需重启生效） |
 
 ## 8 · 与实现的关系
 
@@ -212,6 +215,14 @@
   - **语义被补充（新不变量 ①·注入安全）**：注入页面的 JS 必须对**一切**外来文本用 `JSON.stringify` 转义——文本含 `'`、`"`、`\`、换行乃至 `'); alert(1); //` 时表达式不得被破坏。
   - **语义被补充（新不变量 ②·坏响应不抛）**：`/json` 在浏览器未就绪时可能返回对象/HTML，`cdpTargetOf` 必须返回 `null` 让轮询继续，**不得抛**。
   - **行为变更：无**（参数数组、目录解析、目标挑选、表达式文本、超时数值全部一致）。**方法学收获**：注入型 JS 可以**离线真跑**——搭一个最小假 DOM（`document`/`window`/`Event` 三个全局）就能把只在真页面才暴露的分支变成秒级回归。
+- **2026-09-15 · v0.2.1 修 I10：socket 死掉不再算「实例已打开」（欠账 #3 现场复现）**
+  - **触发（先复现，再改）**：给数字身份做注册前勘测时，目标窗口早已关闭，`webops_open` 却报 `实例已打开（先 webops_close）`——**这正是 v0.2.0 遗留的欠账 #3 现场**，不是猜测。
+  - **根因**：`connect()` **从未挂 `onclose`** ⇒ 目标进程退出时 WebSocket 静默断开，而 `ws` 引用与 `closed` 闸门都不复位 ⇒ `isOpen` 恒真。**症状（插件坏了）与根因（一处没挂 onclose）相距很远**——`isOpen` 是「曾经连过」而非「现在连着」，等于拿隐式状态做判定（对照 evolve 规则 2）。
+  - **修法（三处，全部可离线测）**：① `pure.ts` 新增 `socketLive(readyState, closed)`（未主动关闭 ∧ readyState=OPEN）；② `index.ts` 的 `isOpen` 改用它；③ `connect()` 挂 `onclose` 并按 **socket 身份**复位（`this.ws !== sock` 即早退——旧 socket 的迟到事件不得踩新连接）。
+  - **语义被补充（新不变量 I10）**：连接活性以 socket 为准 + 对端断开必须复位。
+  - **语义被补充（可诊断性）**：拒绝文案补上**模式与端口**（`实例已打开（spawned @ :9222）——先 webops_close`）——排障时不必再猜「开着的到底是谁」。
+  - **验收证据**：A21 已实测（pure 21→22、全量 31→32 通过）；A22 待线上验收（需重启生效）。A2 文案同步更新（**声明与实现对账**：旧命题写的是旧文案）。
+  - **方法学收获**：**欠账要带现场判据才能被验收**——「知道有 bug」不等于「能判定它修好了」；A22 就是为本条欠账补的可证伪现场判据。另：给目标进程做「活着吗」的判定，**唯一可靠来源是连接本身**，别信自己上次记的状态。
 - **2026-09-15 · v0.2.0 attach 扩展（由爱丽丝工作台 Round 3-a 驱动）**
   - **动机（实践先于文档）**：给工作台（Tauri/WebView2）做 Round 3-a「DOM 级控制」时，实测 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` **零代码**即可让 WebView2 暴露 CDP（`/json/version` → `Edg/149.0.4022.80`）。既然通道已在，**复用本插件已有 CDP 客户端**比新造插件更合「组合优先」——本次因此**没有**新建插件。
   - **语义被补充（能力面）**：新增 **attach 模式**——外部端点（别人启动的进程）也纳入工具面；三条边界随之显式化：不 spawn、**close 只断开（I6）**、只驱动界面不改进程。

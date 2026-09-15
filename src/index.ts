@@ -21,7 +21,7 @@ import {
   resolveShotDir, screenshotFileName, typeJs as TYPE_JS,
   CDP_MAX_ATTEMPTS, CDP_POLL_INTERVAL_MS, CDP_SEND_TIMEOUT_MS,
   ATTACH_MAX_ATTEMPTS, ATTACH_POLL_INTERVAL_MS, CONSOLE_BUFFER_CAP,
-  appendConsole, attachFailureMessage, closePlan, consoleEntryOf, targetIdentity,
+  appendConsole, attachFailureMessage, closePlan, consoleEntryOf, socketLive, targetIdentity,
   waitDecision, waitExpr, type ConsoleEntry,
 } from './pure.ts'
 
@@ -70,7 +70,8 @@ class CdpPage {
 
   constructor(private readonly bin: string, private readonly portMin: number, private readonly shotDir: string) {}
 
-  get isOpen(): boolean { return this.ws !== null && !this.closed }
+  /** 连接活着才算「开着」：socket 已被对端关掉（目标进程退出）即判否——否则后续 open/attach 全被挡住。 */
+  get isOpen(): boolean { return socketLive(this.ws?.readyState ?? null, this.closed) }
 
   /** 连接模式（五问之一「我现在连的是谁」的可读答案）。 */
   get mode(): 'closed' | 'spawned' | 'attached' {
@@ -86,15 +87,25 @@ class CdpPage {
   private connect(wsUrl: string): Promise<{ ok: boolean; error?: string }> {
     this.consoleBuf = []
     return new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      let sock: WebSocket
       try {
-        this.ws = new WebSocket(wsUrl)
+        sock = new WebSocket(wsUrl)
       } catch (err) {
         resolve({ ok: false, error: String(err) })
         return
       }
-      this.ws.onopen = () => resolve({ ok: true })
-      this.ws.onerror = () => resolve({ ok: false, error: 'CDP WebSocket 连接失败' })
-      this.ws.onmessage = (ev) => {
+      this.ws = sock
+      sock.onopen = () => resolve({ ok: true })
+      sock.onerror = () => resolve({ ok: false, error: 'CDP WebSocket 连接失败' })
+      // 对端断开（目标进程退出/被关窗）时必须复位引用与闸门：否则 isOpen 永远为真、后续
+      // open()/attach() 全被「实例已打开」挡掉（2026-09-15 现场复现的欠账根因）。
+      // 按 socket 身份守卫：旧 socket 的迟到事件不得踩掉新连接（close() 后 this.ws 已为 null ⇒ 早退）。
+      sock.onclose = () => {
+        if (this.ws !== sock) return
+        this.ws = null
+        this.closed = true
+      }
+      sock.onmessage = (ev) => {
         try {
           const msg = JSON.parse(String(ev.data)) as CdpMessage
           if (typeof msg.id === 'number' && this.pending.has(msg.id)) {
@@ -117,7 +128,7 @@ class CdpPage {
   }
 
   async open(url: string): Promise<{ ok: boolean; error?: string }> {
-    if (this.isOpen) return { ok: false, error: '实例已打开（先 webops_close）' }
+    if (this.isOpen) return { ok: false, error: '实例已打开（${this.mode} @ :${this.port}）——先 webops_close' }
     // 固定调试端口（9222）：实测安全软件只放行默认调试端口，随机偏移端口不监听
     this.port = this.portMin
     this.attached = false
@@ -155,7 +166,7 @@ class CdpPage {
    * ② 轮询预算 3s 而非 40s（端口现在要么开着、要么就没开）③ 失败文案区分「无端点」与「有监听但非 CDP」。
    */
   async attach(port: number): Promise<{ ok: boolean; error?: string; url?: string; title?: string }> {
-    if (this.isOpen) return { ok: false, error: '实例已打开（先 webops_close）' }
+    if (this.isOpen) return { ok: false, error: '实例已打开（${this.mode} @ :${this.port}）——先 webops_close' }
     this.attached = false
     this.closed = false
     let target: { webSocketDebuggerUrl?: string; url?: string; title?: string } | null = null

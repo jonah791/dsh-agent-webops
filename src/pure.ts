@@ -149,6 +149,21 @@ export function closePlan(attached: boolean): { killProc: boolean; rmProfile: bo
   return attached ? { killProc: false, rmProfile: false } : { killProc: true, rmProfile: true }
 }
 
+/** WebSocket.OPEN 的字面值（`pure.ts` 不引运行期全局，故用常量）。 */
+export const WS_OPEN = 1
+
+/**
+ * 连接活性判定（纯函数）：**socket 死了就不算「开着」**。
+ *
+ * 事故（2026-09-15 现场复现）：目标进程退出时 WebSocket 静默断开，而 `ws` 引用与 `closed`
+ * 标志都不复位 ⇒ `isOpen` 永远为真 ⇒ 之后每次 `open()/attach()` 都被「实例已打开」挡掉，
+ * 只能人工 `webops_close` 才恢复（**症状是「插件坏了」，根因是一处没挂 `onclose`**）。
+ * 判据三条：未主动关闭 + readyState 存在 + readyState 为 OPEN（CONNECTING/CLOSING/CLOSED 皆非活着）。
+ */
+export function socketLive(readyState: number | null | undefined, closed: boolean): boolean {
+  return !closed && readyState === WS_OPEN
+}
+
 /** attach 回执里的目标身份（缺字段给可读占位，不抛）。 */
 export function targetIdentity(t: { url?: string; title?: string } | null | undefined): { url: string; title: string } {
   return { url: (t && t.url) || '(无 url)', title: (t && t.title) || '(无标题)' }

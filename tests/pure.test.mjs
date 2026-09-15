@@ -11,7 +11,7 @@ import {
   CDP_MAX_ATTEMPTS, CDP_POLL_INTERVAL_MS, CDP_SEND_TIMEOUT_MS,
   ATTACH_MAX_ATTEMPTS, ATTACH_POLL_INTERVAL_MS, CONSOLE_BUFFER_CAP, CONSOLE_TEXT_MAX,
   appendConsole, attachFailureMessage, cdpJsonUrl, cdpTargetOf, chromeArgs, closePlan, consoleEntryOf,
-  isParseableExpression, profileDirFor, readExpr, resolveShotDir, screenshotFileName, targetIdentity,
+  isParseableExpression, profileDirFor, readExpr, resolveShotDir, screenshotFileName, socketLive, targetIdentity,
   waitDecision, waitExpr,
 } from '../lib/pure.js'
 
@@ -100,6 +100,18 @@ test('attachFailureMessage: 两种失败形态文案**必须不同**（「目标
 test('closePlan（尸体测试）：attach 模式**绝不杀进程、绝不删 profile**——目标不是我启动的', () => {
   assert.deepEqual(closePlan(true), { killProc: false, rmProfile: false })
   assert.deepEqual(closePlan(false), { killProc: true, rmProfile: true })
+})
+
+test('socketLive（尸体测试）：对端断开后**不得再算「开着」**——目标进程退出 ⇒ 后续 open/attach 必须放行', () => {
+  // 事故样本：目标窗口关闭，socket 变成 CLOSED(3)，但 closed 标志仍是 false
+  assert.equal(socketLive(3, false), false, 'socket 已断 ⇒ 不是活着（旧实现在此处判真 ⇒ 永远「实例已打开」）')
+  assert.equal(socketLive(2, false), false, 'CLOSING(2) 亦非活着')
+  assert.equal(socketLive(null, false), false, '无 socket 引用 ⇒ 不活着')
+  assert.equal(socketLive(undefined, false), false, '未定义 readyState ⇒ 不活着（坏输入不得抛）')
+  // 良性样本
+  assert.equal(socketLive(1, false), true, 'OPEN(1) 且未主动关闭 ⇒ 活着')
+  // 边界：主动 close() 后即便 readyState 还没翻到 CLOSED 也必须判否
+  assert.equal(socketLive(1, true), false, 'close() 已置闸门 ⇒ 立即判否（不等 readyState 事件）')
 })
 
 test('targetIdentity: 缺字段给可读占位，不抛（坏目标也能进回执）', () => {
