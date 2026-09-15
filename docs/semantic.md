@@ -169,7 +169,7 @@
 | # | 可证伪命题 | 证据（单测名/命令/日志行/HTTP） | 状态 |
 |---|-----------|------------------------------|------|
 | A1 | 工具面恰为 **10** 个 | 源码 `grep -c "name: 'webops_" src/index.ts` = 10；会话工具列表 `webops_` 前缀命中 10 | 已实测（2026-09-15，源码计数 10） |
-| A2 | 单实例闸门有效（**活性感知**，I1+I10） | 连续两次 `webops_open`：第二次返回含 `实例已打开` + **模式与端口**（如 `实例已打开（spawned @ :9222）——先 webops_close`；文案 v0.2.1 起变更） | **待线上验收** |
+| A2 | 单实例闸门有效（**活性感知**，I1+I10） | 连续两次 `webops_open`：第二次返回含 `实例已打开` + **模式与端口**（如 `实例已打开（spawned @ :9222）——先 webops_close`；文案 v0.2.1 起变更） | 已实测（2026-09-15 16:53，v0.2.2 实测回显 `实例已打开（spawned @ :9222）——先 webops_close`；v0.2.1 该文案曾把 `${}` 打成字面量，v0.2.2 修） |
 | A3 | 未开即拒（I2） | 重启后未连接直接调 `webops_shot`/`webops_wait` → `'实例未打开（先 webops_open，或 webops_attach 附着外部 CDP 端点）'` | **待验收** |
 | A4 | 截图真实落盘 | `webops_shot` 返回路径 `Test-Path` 为真且 mtime = 调用时刻 | 已实测（2026-09-15 14:49，`shot-1789454939398.png` 2041×1292 / 299 KB） |
 | A5 | spawn 模式 close 后无残留 | close 后 `Get-Process chrome` 无该 PID；`%TEMP%\webops-profile-*` 2s 后消失；9222 不再 Listen | **待验收** |
@@ -189,7 +189,7 @@
 | A19 | wait 三态分离（I8）+ 环形缓冲有界（I7） | `npm test` → `waitDecision` 四态用例（含 `WAIT_ERR:` 与 exception 透传、4999ms 不得提前判超时）；`appendConsole` 超容量丢最旧；`consoleEntryOf` 非控制台事件 `null` | 已实测（2026-09-15） |
 | A20 | attach 失败文案二分（可诊断性） | `npm test` → `attachFailureMessage` 两态文案必须不同且含可照做的启动参数 | 已实测（2026-09-15） |
 | A21 | **socket 死了不得再算「开着」**（I10 尸体测试） | `npm test` → `socketLive`：CLOSED(3) / CLOSING(2) / `null` / `undefined` 一律 `false`；OPEN(1)+未关闭 `true`；`close()` 落闸门后即便 readyState 仍是 1 也 `false` | 已实测（2026-09-15，pure 22/22） |
-| A22 | 目标进程退出后 `open`/`attach` **必须放行**（v0.2.1 事故的现场判据） | 现场：目标窗口关闭后直接调 `webops_open` → **不得**再报「实例已打开」，应正常拉起；对照旧实现（2026-09-15 复现：必报错，须人工 `webops_close` 才恢复） | **待线上验收**（v0.2.1 需重启生效） |
+| A22 | 目标进程退出后 `open`/`attach` **必须放行**（v0.2.1 事故的现场判据） | 现场：目标窗口关闭后直接调 `webops_open` → **不得**再报「实例已打开」，应正常拉起；对照旧实现（2026-09-15 复现：必报错，须人工 `webops_close` 才恢复） | 已实测（2026-09-15 16:01：`taskkill /F /T` 杀掉监听 9222 的浏览器 → 复查 9222 无监听 → 再调 `webops_open` **成功拉起**） |
 
 ## 8 · 与实现的关系
 
