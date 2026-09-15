@@ -115,3 +115,96 @@ export function isParseableExpression(expr: string): boolean {
     return false
   }
 }
+
+/* ───────────────────────── attach 模式（v0.2.0：附着外部 CDP 端点） ───────────────────────── */
+
+/**
+ * attach 就绪轮询：10 次 × 300ms ≈ 3s。
+ * 与 `open` 的 40s 冷启动预算不同——attach 连的是**已运行**的进程，端口要么已经开着、要么就没开。
+ */
+export const ATTACH_MAX_ATTEMPTS = 10
+export const ATTACH_POLL_INTERVAL_MS = 300
+/** 控制台环形缓冲容量（超出丢最旧）。 */
+export const CONSOLE_BUFFER_CAP = 200
+/** 单条控制台文本上限（防一条巨型日志吃掉上下文）。 */
+export const CONSOLE_TEXT_MAX = 1000
+
+export interface ConsoleEntry { atMs: number; level: string; text: string }
+
+/**
+ * attach 失败文案：**区分「端口没有 CDP 端点」与「有监听但不是可用 CDP 端点」**。
+ * （对照 §5.9 规则 1：不精确的错误文案会让「目标没开调试端口」被读成「插件坏了」。）
+ */
+export function attachFailureMessage(port: number, kind: 'unreachable' | 'no-page'): string {
+  return kind === 'unreachable'
+    ? `端口 ${port} 上没有 CDP 端点（目标进程未以 --remote-debugging-port=${port} 启动？）`
+    : `端口 ${port} 有监听但取不到 page target（可能被非 CDP 进程占用）`
+}
+
+/**
+ * 关闭计划：attach 模式**只断开连接**——目标进程不是本插件启动的，
+ * 杀它等于越权（真实事故形态：把主人的应用杀掉）。
+ */
+export function closePlan(attached: boolean): { killProc: boolean; rmProfile: boolean } {
+  return attached ? { killProc: false, rmProfile: false } : { killProc: true, rmProfile: true }
+}
+
+/** attach 回执里的目标身份（缺字段给可读占位，不抛）。 */
+export function targetIdentity(t: { url?: string; title?: string } | null | undefined): { url: string; title: string } {
+  return { url: (t && t.url) || '(无 url)', title: (t && t.title) || '(无标题)' }
+}
+
+/**
+ * CDP 事件 → 控制台条目（`Runtime.consoleAPICalled` / `Runtime.exceptionThrown` / `Log.entryAdded`）。
+ * 其它事件（含命令响应）返回 `null`——调用方据此忽略。
+ */
+export function consoleEntryOf(
+  msg: { method?: string; params?: Record<string, unknown> } | null | undefined,
+  nowMs: number,
+): ConsoleEntry | null {
+  if (!msg || typeof msg !== 'object') return null
+  const params = (msg.params ?? {}) as Record<string, any>
+  if (msg.method === 'Runtime.consoleAPICalled') {
+    const args = Array.isArray(params.args) ? params.args : []
+    const text = args.map((a: any) => (a && a.value !== undefined ? String(a.value) : (a?.description ?? a?.type ?? '?'))).join(' ')
+    return { atMs: nowMs, level: String(params.type ?? 'log'), text: text.slice(0, CONSOLE_TEXT_MAX) }
+  }
+  if (msg.method === 'Runtime.exceptionThrown') {
+    const details = (params.exceptionDetails ?? {}) as Record<string, any>
+    const desc = details?.exception?.description ?? details?.text ?? '(无描述)'
+    return { atMs: nowMs, level: 'exception', text: String(desc).slice(0, CONSOLE_TEXT_MAX) }
+  }
+  if (msg.method === 'Log.entryAdded') {
+    const entry = (params.entry ?? {}) as Record<string, any>
+    return { atMs: nowMs, level: String(entry.level ?? 'log'), text: String(entry.text ?? '').slice(0, CONSOLE_TEXT_MAX) }
+  }
+  return null
+}
+
+/** 环形缓冲追加（返回新数组，不原地改；超容量丢最旧）。 */
+export function appendConsole(buf: ConsoleEntry[], entry: ConsoleEntry, cap: number = CONSOLE_BUFFER_CAP): ConsoleEntry[] {
+  const next = buf.concat([entry])
+  return next.length > cap ? next.slice(next.length - cap) : next
+}
+
+/**
+ * wait 表达式：把调用方表达式包成「真值布尔」的 async IIFE。
+ * 页面内异常**不抛出**，而是变成 `WAIT_ERR:` 前缀的字符串（否则异常与「条件为假」无法区分）。
+ */
+export function waitExpr(expression: string): string {
+  return `(async () => { try { return Boolean(await (${expression})) } catch (e) { return 'WAIT_ERR:' + String((e && e.message) || e) } })()`
+}
+
+/** wait 轮询判定（纯函数）：ok（条件成立）/ error（表达式异常）/ timeout（预算耗尽）/ continue。 */
+export function waitDecision(
+  r: { value?: unknown; error?: string },
+  waitedMs: number,
+  timeoutMs: number,
+): { state: 'ok' | 'error' | 'continue' | 'timeout'; detail: string } {
+  if (r.error) return { state: 'error', detail: r.error }
+  const v = r.value
+  if (typeof v === 'string' && v.startsWith('WAIT_ERR:')) return { state: 'error', detail: v.slice('WAIT_ERR:'.length) }
+  if (v === true) return { state: 'ok', detail: 'true' }
+  if (waitedMs >= timeoutMs) return { state: 'timeout', detail: `等待 ${waitedMs}ms 未满足（最后取值 ${JSON.stringify(v)}）` }
+  return { state: 'continue', detail: String(v) }
+}
