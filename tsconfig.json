@@ -20,30 +20,7 @@
     "rewriteRelativeImportExtensions": true,
     "types": [
       "node"
-    ],
-    "typeRoots": [
-      "E:/alice/self-plugins/dsh-agent-browser/node_modules/@types"
-    ],
-    "paths": {
-      "@deepseek-ai/cordis": [
-        "C:/Users/tr/.dsh/profiles/node_modules/@deepseek-ai/cordis/lib/types/index.d.ts"
-      ],
-      "@deepseek-ai/cordis/*": [
-        "C:/Users/tr/.dsh/profiles/node_modules/@deepseek-ai/cordis/lib/types/*"
-      ],
-      "@deepseek-ai/dsh-tools": [
-        "C:/Users/tr/.dsh/profiles/node_modules/@deepseek-ai/dsh-tools/lib/types/index.d.ts"
-      ],
-      "@deepseek-ai/dsh-tools/*": [
-        "C:/Users/tr/.dsh/profiles/node_modules/@deepseek-ai/dsh-tools/lib/types/*"
-      ],
-      "@deepseek-ai/schemastery": [
-        "C:/Users/tr/.dsh/profiles/node_modules/@deepseek-ai/schemastery/lib/types/index.d.ts"
-      ],
-      "@deepseek-ai/schemastery/*": [
-        "C:/Users/tr/.dsh/profiles/node_modules/@deepseek-ai/schemastery/lib/types/*"
-      ]
-    }
+    ]
   },
   "include": [
     "src"
