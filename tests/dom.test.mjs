@@ -156,3 +156,65 @@ test('typeJs: 选择器含引号也安全（JSON 转义）', () => {
   })
   assert.equal(el.value, 'v')
 })
+
+test('typeJs: textarea 必须走 HTMLTextAreaElement 的 setter（用 input 的会抛 Illegal invocation）', () => {
+  let inputCalls = 0
+  let taCalls = 0
+  class FakeInput {}
+  Object.defineProperty(FakeInput.prototype, 'value', {
+    configurable: true,
+    get() { return this._v },
+    set(v) { inputCalls += 1; this._v = 'INPUT:' + v },
+  })
+  class FakeTextArea {}
+  Object.defineProperty(FakeTextArea.prototype, 'value', {
+    configurable: true,
+    get() { return this._v },
+    set(v) { taCalls += 1; this._v = v },
+  })
+  const prevTA = globalThis.HTMLTextAreaElement
+  globalThis.HTMLTextAreaElement = FakeTextArea
+  try {
+    const ta = new FakeTextArea()
+    ta.events = []
+    ta.dispatchEvent = function (ev) { this.events.push(ev); return true }
+    withFakeDom({ bySelector: { '#t': ta }, inputProto: FakeInput }, () => {
+      assert.equal(run(typeJs('#t', '多行文本')), 'TYPED')
+    })
+    assert.equal(taCalls, 1, 'textarea 必须走 textarea 的原生 setter')
+    assert.equal(inputCalls, 0, 'textarea 绝不能走 input 的 setter——那正是 Illegal invocation 的来源')
+    assert.equal(ta.value, '多行文本')
+    assert.deepEqual(ta.events.map((e) => e.type), ['input', 'change'])
+  } finally {
+    if (prevTA === undefined) delete globalThis.HTMLTextAreaElement
+    else globalThis.HTMLTextAreaElement = prevTA
+  }
+})
+
+test('typeJs: 同页 input 与 textarea 各写一次都成功（回归 t-fb643b86 的验收判据）', () => {
+  class FakeInput {}
+  Object.defineProperty(FakeInput.prototype, 'value', { configurable: true, get() { return this._v }, set(v) { this._v = v } })
+  class FakeTextArea {}
+  Object.defineProperty(FakeTextArea.prototype, 'value', { configurable: true, get() { return this._v }, set(v) { this._v = v } })
+  const prevTA = globalThis.HTMLTextAreaElement
+  globalThis.HTMLTextAreaElement = FakeTextArea
+  try {
+    const input = new FakeInput()
+    const ta = new FakeTextArea()
+    for (const el of [input, ta]) {
+      el.events = []
+      el.dispatchEvent = function (ev) { this.events.push(ev); return true }
+    }
+    withFakeDom({ bySelector: { '#i': input, '#t': ta }, inputProto: FakeInput }, () => {
+      assert.equal(run(typeJs('#i', 'input 值')), 'TYPED')
+      assert.equal(run(typeJs('#t', 'textarea 值')), 'TYPED')
+    })
+    assert.equal(input.value, 'input 值')
+    assert.equal(ta.value, 'textarea 值')
+    assert.deepEqual(input.events.map((e) => e.type), ['input', 'change'])
+    assert.deepEqual(ta.events.map((e) => e.type), ['input', 'change'])
+  } finally {
+    if (prevTA === undefined) delete globalThis.HTMLTextAreaElement
+    else globalThis.HTMLTextAreaElement = prevTA
+  }
+})

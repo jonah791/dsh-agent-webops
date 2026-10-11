@@ -88,15 +88,20 @@ export function clickJs(text: string): string {
 }
 
 /**
- * 输入表达式（注入页面执行）：React 受控组件兼容——用原生 value setter 写值，
+ * 输入表达式（注入页面执行）：React 受控组件兼容——用**与元素类型匹配**的原生 value setter 写值，
  * 再派发 `input` + `change`（只改 `.value` 不派事件的话 React 读不到）。
- * 无选择器匹配返回 `NOT_FOUND`；`window.HTMLInputElement` 不可用时回落直接赋值。
+ * setter 必须按元素类型分派：`textarea` 上用 `HTMLInputElement` 的 setter 会抛
+ * `TypeError: Illegal invocation`（2026-10-11 驱动 chat.deepseek.com 实测 · t-fb643b86）。
+ * 无选择器匹配返回 `NOT_FOUND`；无可用 setter 时回落直接赋值。
  */
 export function typeJs(selector: string, text: string): string {
   return `(() => {
   const el = document.querySelector(${JSON.stringify(selector)})
   if (!el) return 'NOT_FOUND'
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value') && Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+  const isTextArea = typeof HTMLTextAreaElement !== 'undefined' && el instanceof HTMLTextAreaElement
+  const proto = isTextArea ? HTMLTextAreaElement.prototype : (window.HTMLInputElement && window.HTMLInputElement.prototype)
+  const desc = proto ? Object.getOwnPropertyDescriptor(proto, 'value') : null
+  const setter = desc ? desc.set : null
   if (setter) setter.call(el, ${JSON.stringify(text)})
   else el.value = ${JSON.stringify(text)}
   el.dispatchEvent(new Event('input', { bubbles: true }))
