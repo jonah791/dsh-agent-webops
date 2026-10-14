@@ -14,7 +14,7 @@
   <a href="https://github.com/jonah791/dsh-agent-webops"><img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version"></a>
   <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/TypeScript-3178C6" alt="TypeScript">
-  <img src="https://img.shields.io/badge/tests-31%20passed-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-34%20passed-brightgreen" alt="tests">
 </p>
 
 **一句话**：给 agent 一个**自己的** CDP 会话——打开页面、读文本、点按钮、填输入框、跑 JS、等条件、读控制台、截图，全流程自主，不借用主人的浏览器。
