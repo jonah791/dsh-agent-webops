@@ -185,7 +185,7 @@
 | A15 | **attach 的 close 只断开、绝不杀目标进程**（I6 现场验收） | close 后：`alice-workbench` 仍存活（pid 4384，启动 14:48:37 未变）、9333 与 1420 仍 LISTEN、`/json` 仍返回 page target「爱丽丝工作台」、可再次 attach 成功 | 已实测（2026-09-15 14:52） |
 | A16 | **closePlan 尸体测试**（attach 分支不得杀进程/删 profile） | `npm test` → `closePlan(true) = {killProc:false, rmProfile:false}` | 已实测（2026-09-15） |
 | A17 | 控制台缓冲捕获真实条目 | `webops_console` → 4 条（`[debug] [vite] connecting…` / `connected` / React DevTools info / `[error] Failed to load resource: 404`） | 已实测（2026-09-15 14:49） |
-| A18 | **DOM 级驱动产生真实状态变更**（起节点 → 停节点 → 收尸闭环） | 起：星数 5→6、HUD「节点 2 在线」、账本 `.workbench-spawned.json` 写入 `LAPTOP-BF4IAPLM-wb-0`/pid、心跳文件出现；停（**一次调用内双击确认**）：星数 6→5、HUD「节点 1 在线」、账本回到 `[]`、`nodes/LAPTOP-BF4IAPLM-wb-0.json` 已删、登记 pid 已终止 | 已实测（2026-09-15 14:49–14:51） |
+| A18 | **DOM 级驱动产生真实状态变更**（起节点 → 停节点 → 收尸闭环） | 起：星数 5→6、HUD「节点 2 在线」、账本 `.workbench-spawned.json` 写入 `<host>-wb-0`/pid、心跳文件出现；停（**一次调用内双击确认**）：星数 6→5、HUD「节点 1 在线」、账本回到 `[]`、`nodes/<host>-wb-0.json` 已删、登记 pid 已终止 | 已实测（2026-09-15 14:49–14:51） |
 | A19 | wait 三态分离（I8）+ 环形缓冲有界（I7） | `npm test` → `waitDecision` 四态用例（含 `WAIT_ERR:` 与 exception 透传、4999ms 不得提前判超时）；`appendConsole` 超容量丢最旧；`consoleEntryOf` 非控制台事件 `null` | 已实测（2026-09-15） |
 | A20 | attach 失败文案二分（可诊断性） | `npm test` → `attachFailureMessage` 两态文案必须不同且含可照做的启动参数 | 已实测（2026-09-15） |
 | A21 | **socket 死了不得再算「开着」**（I10 尸体测试） | `npm test` → `socketLive`：CLOSED(3) / CLOSING(2) / `null` / `undefined` 一律 `false`；OPEN(1)+未关闭 `true`；`close()` 落闸门后即便 readyState 仍是 1 也 `false` | 已实测（2026-09-15，pure 22/22） |
