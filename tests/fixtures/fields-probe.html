@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="utf-8"><title>webops fields probe</title></head>
+<body>
+<h1>字段识别探针</h1>
+<p>每个控件都埋了唯一的哨兵值（PROBE_VAL_*）。fields 模式的输出里出现任何一个，就是泄漏。</p>
+<form id="probe">
+  <p><label for="u">用户名</label>
+     <input id="u" type="text" name="username" placeholder="用户名" value="PROBE_VAL_USER_111"></p>
+  <p><label for="e">邮箱</label>
+     <input id="e" type="email" name="email" value="PROBE_VAL_EMAIL_222"></p>
+  <p><label for="p">密码</label>
+     <input id="p" type="password" name="password" value="PROBE_VAL_PASS_333"></p>
+  <p><input id="h" type="hidden" name="csrf" value="PROBE_VAL_HIDDEN_444"></p>
+  <p><label for="c">卡号</label>
+     <input id="c" type="text" name="cc" autocomplete="cc-number" value="PROBE_VAL_CC_555"></p>
+  <p><label for="k">接口密钥</label>
+     <input id="k" type="text" name="api_key" value="PROBE_VAL_APIKEY_666"></p>
+  <p><label for="f">附件</label>
+     <input id="f" type="file" name="upload"></p>
+  <p><label for="n">备注</label>
+     <textarea id="n" name="note">PROBE_VAL_NOTE_777</textarea></p>
+  <p><button type="submit">提交</button></p>
+</form>
+</body>
+</html>
