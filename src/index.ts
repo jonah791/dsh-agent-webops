@@ -18,6 +18,7 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import {
   cdpJsonUrl, cdpTargetOf, chromeArgs, clickJs as CLICK_JS, profileDirFor, readExpr,
+  fieldsExpr, isSensitiveField, type FieldMeta,
   resolveShotDir, screenshotFileName, typeJs as TYPE_JS,
   CDP_MAX_ATTEMPTS, CDP_POLL_INTERVAL_MS, CDP_SEND_TIMEOUT_MS,
   ATTACH_MAX_ATTEMPTS, ATTACH_POLL_INTERVAL_MS, CONSOLE_BUFFER_CAP,
@@ -136,7 +137,7 @@ class CdpPage {
     // 复位上一轮 close() 留下的闸门：否则 isOpen 永远为假、后续工具全部误报「未打开」
     this.closed = false
     try {
-      this.proc = spawn(this.bin, chromeArgs({ port: this.port, profileDir: this.profileDir, url }), { stdio: 'ignore' })
+      this.proc = spawn(this.bin, chromeArgs({ port: this.port, profileDir: this.profileDir, url }), { stdio: 'ignore', windowsHide: true })
     } catch (err) {
       return { ok: false, error: '浏览器启动失败: ' + String(err) }
     }
@@ -254,7 +255,7 @@ class CdpPage {
     if (plan.killProc) {
       try { this.proc?.kill() } catch { /* 忽略 */ }
       if (this.proc && this.proc.pid) {
-        try { spawn('taskkill', ['/F', '/T', '/PID', String(this.proc.pid)], { stdio: 'ignore' }) } catch { /* 忽略 */ }
+        try { spawn('taskkill', ['/F', '/T', '/PID', String(this.proc.pid)], { windowsHide: true, stdio: 'ignore' }) } catch { /* 忽略 */ }
       }
     }
     if (plan.rmProfile && this.profileDir) {
@@ -268,7 +269,7 @@ class CdpPage {
 
 /** 点击/输入用的 DOM 辅助表达式（页面内执行）——定义在 `src/pure.ts`（可离线单测），此处仅重导出。
  * 注意：那些是注入浏览器的纯 JS（不能含 TS 语法如 as 类型断言）。 */
-export { clickJs, typeJs, readExpr } from './pure.ts'
+export { clickJs, typeJs, readExpr, fieldsExpr, isSensitiveField, type FieldMeta } from './pure.ts'
 
 export function apply(ctx: Context, config: Config): void {
   const page = new CdpPage(config.browserBin, config.portMin, resolveShotDir(config.shotDir, process.env.DSH_HOME || ''))
@@ -306,11 +307,51 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_read',
-    description: '读取自主浏览器当前页面文本（可选 CSS 选择器限定；缺省取 body 全文）。',
-    parameters: { selector: { type: 'string', description: 'CSS 选择器（可选）' } },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, text: { type: 'string' }, error: { type: 'string' } } }, render: (_a: any, v: any) => [{ type: 'text', text: v.ok ? String(v.text ?? '').slice(0, 6000) : ('失败: ' + (v.error ?? '')) }] },
-    async execute(args: { selector?: string }) {
+    description: '读取自主浏览器当前页面。mode=text（缺省）：取文本，可选 CSS 选择器限定，缺省取 body 全文。mode=fields：枚举表单字段的**元信息**并标注哪些是敏感字段——**值一律不读**（表达式里根本没有 value 字段），用于在「要不要把某个字段的值喂进上下文」这件事上不靠人工判断。识别只用于这一处判断，不改变「能不能操作」。',
+    parameters: {
+      selector: { type: 'string', description: 'CSS 选择器（仅 mode=text）' },
+      mode: { type: 'string', description: 'text（缺省）| fields（枚举表单字段元信息 + 敏感标注，不读值）' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ok: { type: 'boolean', required: true },
+          text: { type: 'string' },
+          fields: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          sensitiveCount: { type: 'number' },
+          error: { type: 'string' },
+        },
+      },
+      render: (_a: any, v: any) => {
+        if (!v.ok) return [{ type: 'text', text: '失败: ' + (v.error ?? '') }]
+        if (Array.isArray(v.fields)) {
+          const lines = (v.fields as any[]).map((f) => {
+            const mark = f.sensitive ? '[敏感]' : '·'
+            const why = f.sensitive ? `（${(f.reasons ?? []).join(' / ')}）` : ''
+            const name = f.label || f.name || f.id || '(无名)'
+            return `${mark} ${f.tag}[${f.type}] ${name}${why}`
+          })
+          const head = `字段 ${v.fields.length} 个，敏感 ${v.sensitiveCount ?? 0} 个（值一律未读取）`
+          return [{ type: 'text', text: `${head}\n${lines.join('\n')}`.slice(0, 6000) }]
+        }
+        return [{ type: 'text', text: String(v.text ?? '').slice(0, 6000) }]
+      },
+    },
+    async execute(args: { selector?: string; mode?: string }) {
       if (!opened()) return { ok: false, error: OPEN_HINT }
+      if ((args.mode ?? 'text') === 'fields') {
+        const r = await page.evaluate(fieldsExpr())
+        if (r.error) return { ok: false, error: r.error }
+        const raw = Array.isArray(r.value) ? (r.value as FieldMeta[]) : []
+        // 判定只在 Node 侧做一份：页面侧只给元信息，避免两份规则漂移
+        const fields = raw.map((f) => {
+          const verdict = isSensitiveField(f)
+          return { ...f, sensitive: verdict.sensitive, reasons: verdict.reasons }
+        })
+        return { ok: true, fields, sensitiveCount: fields.filter((f) => f.sensitive).length }
+      }
       const expr = readExpr(args.selector)
       const r = await page.evaluate(expr)
       if (r.error) return { ok: false, error: r.error }

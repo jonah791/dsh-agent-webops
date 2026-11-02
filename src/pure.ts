@@ -228,3 +228,93 @@ export function waitDecision(
   if (waitedMs >= timeoutMs) return { state: 'timeout', detail: `等待 ${waitedMs}ms 未满足（最后取值 ${JSON.stringify(v)}）` }
   return { state: 'continue', detail: String(v) }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// 敏感字段识别（2026-11-03 · t-ce65f010）
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 判据来源：browser-use 的 `browser_use/dom/enhanced_snapshot.py::_is_sensitive_input`
+ * （2026-10-17 源码评读）——它的两条：① `type ∈ {password, file, hidden}`
+ * ② `autocomplete` 以敏感前缀开头（payment / one-time-code 类）。本地补第三条：
+ * `name` / `id` 含凭据类词根（很多表单不写 autocomplete，但字段名叫 `api_key`）。
+ *
+ * **识别结果的用途只有一个**：决定「这个字段的值要不要进上下文」。
+ * 它**不改变「能不能操作」**——不拦截、不阻断（§5.27：看得见归机制，做不做归主体）。
+ */
+export const SENSITIVE_FIELD_TYPES = ['password', 'file', 'hidden'] as const
+
+/**
+ * `autocomplete` 敏感前缀。`cc-` 覆盖 `cc-number` / `cc-csc` / `cc-exp` 整族；
+ * `payment` 是旧式写法（部分表单还用它）。
+ */
+export const SENSITIVE_AUTOCOMPLETE_PREFIXES = [
+  'current-password', 'new-password', 'one-time-code', 'cc-', 'payment',
+] as const
+
+/** `name` / `id` 的凭据词根。⚠ 刻意不含 `user` / `email` 这类标识类字段——它们不是凭据。 */
+export const SENSITIVE_NAME_PATTERN = /(passw|secret|token|otp|captcha|api[-_]?key|credential|private[-_]?key)/i
+
+/** 表单字段的**元信息**（永不含值） */
+export interface FieldMeta {
+  tag: string
+  type?: string
+  name?: string
+  id?: string
+  autocomplete?: string
+  label?: string
+}
+
+export interface FieldVerdict {
+  sensitive: boolean
+  /** 命中了哪几条（可审：不接受「我觉得它是敏感的」） */
+  reasons: string[]
+}
+
+/**
+ * 判一个字段是不是敏感。**纯函数**，可离线测（判据不能只活在浏览器里）。
+ */
+export function isSensitiveField(f: FieldMeta): FieldVerdict {
+  const reasons: string[] = []
+  const type = (f.type ?? '').toLowerCase()
+  if ((SENSITIVE_FIELD_TYPES as readonly string[]).includes(type)) reasons.push(`type=${type}`)
+
+  const ac = (f.autocomplete ?? '').toLowerCase()
+  if (ac) {
+    const hit = SENSITIVE_AUTOCOMPLETE_PREFIXES.find((p) => ac === p || ac.startsWith(p))
+    if (hit) reasons.push(`autocomplete=${hit}`)
+  }
+
+  for (const [label, v] of [['name', f.name], ['id', f.id]] as const) {
+    const m = v ? SENSITIVE_NAME_PATTERN.exec(v) : null
+    if (m) reasons.push(`${label} 含「${m[1]}」`)
+  }
+  return { sensitive: reasons.length > 0, reasons }
+}
+
+/**
+ * 枚举表单字段**元信息**的页面表达式。
+ *
+ * ★ 这里**刻意不取 `el.value`**，且页面侧不做敏感判定——
+ * 值不进上下文是**结构保证**（表达式里根本没有那个字段），不是靠我记住「别读它」；
+ * 判定只在 Node 侧的 `isSensitiveField` 里做一份，避免两份规则漂移。
+ */
+export function fieldsExpr(): string {
+  return `(() => {
+  const out = []
+  for (const el of [...document.querySelectorAll('input,select,textarea')]) {
+    const t = (el.getAttribute('type') || '').toLowerCase()
+    const a = (el.getAttribute('autocomplete') || '').toLowerCase()
+    const l = el.getAttribute('aria-label') || el.getAttribute('placeholder') || ''
+    out.push({
+      tag: el.tagName.toLowerCase(),
+      type: t || 'text',
+      name: el.getAttribute('name') || '',
+      id: el.getAttribute('id') || '',
+      autocomplete: a,
+      label: l.slice(0, 80),
+    })
+  }
+  return out
+})()`
+}
