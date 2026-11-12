@@ -278,6 +278,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_open',
+    deferLoading: true,
     description: '打开自主浏览器（headless Edge）并导航到 URL——爱丽丝自主 GUI/网页操作的第一步。关闭旧实例需先 webops_close。',
     parameters: { url: { type: 'string', required: true, description: '目标 URL' } },
     output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, error: { type: 'string' } } }, render: (_a: any, v: any) => [{ type: 'text', text: v.ok ? '浏览器已打开' : ('失败: ' + (v.error ?? '')) }] },
@@ -290,6 +291,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_attach',
+    deferLoading: true,
     description: '附着到**已运行**的外部 CDP 端点（Tauri/WebView2、Electron、任何带 --remote-debugging-port 的进程）——DOM 级驱动桌面应用界面；不启动进程，close 只断开、不杀目标。附着后 read/click/type/eval/shot/wait/console 全部可用。',
     parameters: { port: { type: 'number', description: '目标进程的 CDP 端口（缺省用 config.attachPort；爱丽丝工作台 WebView2 = 9333）' } },
     output: {
@@ -307,6 +309,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_read',
+    deferLoading: true,
     description: '读取自主浏览器当前页面。mode=text（缺省）：取文本，可选 CSS 选择器限定，缺省取 body 全文。mode=fields：枚举表单字段的**元信息**并标注哪些是敏感字段——**值一律不读**（表达式里根本没有 value 字段），用于在「要不要把某个字段的值喂进上下文」这件事上不靠人工判断。识别只用于这一处判断，不改变「能不能操作」。',
     parameters: {
       selector: { type: 'string', description: 'CSS 选择器（仅 mode=text）' },
@@ -361,6 +364,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_click',
+    deferLoading: true,
     description: '在自主浏览器点击元素（按可见文本精确/包含匹配 button/a/span 等；返回 CLICKED/NOT_FOUND）。',
     parameters: { text: { type: 'string', required: true, description: '元素文本（如「插件」）' } },
     output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, result: { type: 'string' }, error: { type: 'string' } } }, render: (_a: any, v: any) => [{ type: 'text', text: v.ok ? String(v.result) : ('失败: ' + (v.error ?? '')) }] },
@@ -374,6 +378,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_type',
+    deferLoading: true,
     description: '在自主浏览器输入框输入文本（CSS 选择器定位；React 兼容——原生 setter + input/change 事件）。',
     parameters: { selector: { type: 'string', required: true, description: 'CSS 选择器（如 input[placeholder*=插件名]）' }, text: { type: 'string', required: true, description: '要输入的文本' } },
     output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, result: { type: 'string' }, error: { type: 'string' } } }, render: (_a: any, v: any) => [{ type: 'text', text: v.ok ? String(v.result) : ('失败: ' + (v.error ?? '')) }] },
@@ -387,6 +392,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_eval',
+    deferLoading: true,
     description: '在自主浏览器执行任意 JS（awaitPromise 支持 async；返回值需 JSON 可序列化）。',
     parameters: { expression: { type: 'string', required: true, description: 'JS 表达式' } },
     output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, value: { type: 'string' }, error: { type: 'string' } } }, render: (_a: any, v: any) => [{ type: 'text', text: v.ok ? String(v.value) : ('失败: ' + (v.error ?? '')) }] },
@@ -400,6 +406,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_wait',
+    deferLoading: true,
     description: '服务端轮询等待页面里的 JS 条件成立（按真值判断；页面异常与「条件为假」区分开）——替代盲等 sleep。',
     parameters: {
       expression: { type: 'string', required: true, description: 'JS 表达式（真值即满足，如 document.querySelectorAll(".star").length >= 2）' },
@@ -422,6 +429,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_console',
+    deferLoading: true,
     description: '读取页面控制台输出/未捕获异常/浏览器日志（连接期间缓冲的最近条目）——白屏与 JS 报错的第一取证入口（程序化 F12）。',
     parameters: { limit: { type: 'number', description: `返回条数（缺省 50，上限 ${CONSOLE_BUFFER_CAP}）` }, clear: { type: 'boolean', description: '读取后是否清空缓冲' } },
     output: {
@@ -441,6 +449,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_shot',
+    deferLoading: true,
     description: '自主浏览器截图（PNG 存到 shotDir，返回路径——配合 read_image 查看）。attach 模式下也无需窗口在前台。',
     parameters: {},
     output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, path: { type: 'string' }, error: { type: 'string' } } }, render: (_a: any, v: any) => [{ type: 'text', text: v.ok ? ('截图: ' + v.path) : ('失败: ' + (v.error ?? '')) }] },
@@ -452,6 +461,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'webops_close',
+    deferLoading: true,
     description: '关闭/断开当前 CDP 会话（spawn 模式：杀进程 + 清临时 profile；attach 模式：只断开连接，目标进程不受影响）。',
     parameters: {},
     output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, mode: { type: 'string' }, error: { type: 'string' } } }, render: (_a: any, v: any) => [{ type: 'text', text: v.ok ? ('已关闭（原模式: ' + v.mode + '）') : ('失败: ' + (v.error ?? '')) }] },
